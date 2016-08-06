@@ -11,8 +11,7 @@ import requests
 profileDir = "C:\\Users\\Joel\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\6efcy1z3.default"
 
 # TODO:
-# Favicon-Downloader-Worker and dynamic update
-# deleting tabs
+# Focus pocus nach annotation
 # Drag/Drop? (see initial commit)
 
 class Tab(object):
@@ -158,6 +157,7 @@ class Application(ttk.Frame):
         self.grid(sticky=NSEW)
         self.createWidgets()
         self.treeView.bind("#", self.keyHandler)
+        self.treeView.bind("<Key>", self.keyHandler)
 
         if len(windows) == 0:
             messagebox.showwarning("File not found", "tabs.json could not be loaded!")
@@ -180,11 +180,14 @@ class Application(ttk.Frame):
         self.annotateTabsButton = ttk.Button(self.buttonFrame, text="Annotate", command=self.annotateTab)
         self.annotateTabsButton.grid(row=0, column=1, sticky=tk.NE)
 
+        self.deleteTabButton = ttk.Button(self.buttonFrame, text="Delete", command=self.deleteTab)
+        self.deleteTabButton.grid(row=0, column=2, sticky=tk.NE)
+
         self.saveButton = ttk.Button(self.buttonFrame, text="Save", command=self.saveTabs)
-        self.saveButton.grid(row=0, column=2, sticky=tk.NE)
+        self.saveButton.grid(row=0, column=3, sticky=tk.NE)
 
         self.quitButton = ttk.Button(self.buttonFrame, text="Quit", command=self.onQuit)
-        self.quitButton.grid(row=0, column=3, sticky=tk.NE)
+        self.quitButton.grid(row=0, column=4, sticky=tk.NE)
 
         self.treeView = ttk.Treeview(self)
         self.treeView.grid(row=1, sticky=NSEW)
@@ -197,9 +200,17 @@ class Application(ttk.Frame):
         self.treeScroll.config(command=self.treeView.yview)
         self.treeView.configure(yscroll=self.treeScroll.set)
 
+    def deleteTab(self):
+        if len(self.treeView.selection()) > 0:
+            if messagebox.askyesno("Delete?", "Are you sure you want to delete the selected tab trees?"):
+                self.treeView.delete(self.treeView.selection())
+
     def keyHandler(self, event):
+        #print(event.char, event.keysym)
         if event.char == "#":
             self.annotateTab()
+        elif event.keysym == "Delete":
+            self.deleteTab()
 
     def onQuit(self):
         if messagebox.askyesno("Save?", "Save before quitting?"):
@@ -245,6 +256,8 @@ class Application(ttk.Frame):
                         self.treeView.item(item, text=getObjLabel(obj))
                     else:
                         print("Unkown tab id (possibly window): ", item)
+                self.treeView.focus_set()
+                self.treeView.focus(self.treeView.selection())
 
     def openTab(self, event):
         item = self.treeView.identify('item',event.x,event.y)
@@ -305,7 +318,6 @@ class Favicon(object):
         if self.tkImage == None:
             if self.imageObject != None:
                 self.tkImage = ImageTk.PhotoImage(self.imageObject)
-                print(self.tkImage)
         if self.downloading and self.iconFuture.done():
             img = self.iconFuture.result()
             if img:
