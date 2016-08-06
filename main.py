@@ -256,8 +256,8 @@ class Application(ttk.Frame):
                         self.treeView.item(item, text=getObjLabel(obj))
                     else:
                         print("Unkown tab id (possibly window): ", item)
-                self.treeView.focus_set()
-                self.treeView.focus(self.treeView.selection())
+            self.treeView.focus_set()
+            self.treeView.focus()
 
     def openTab(self, event):
         item = self.treeView.identify('item',event.x,event.y)
