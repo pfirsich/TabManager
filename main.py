@@ -22,14 +22,6 @@ class Tab(object):
         self.collapsed = False
         self.tstId = None
         self.tstParent = None
-        self.imageObject = None
-
-        if self.image != None:
-            if self.image.startswith("http"):
-                pass
-            elif self.image.startswith("data:image/png;base64"):
-                f = io.BytesIO(base64.b64decode(self.image[22:]))
-                self.imageObject = Image.open(f)
 
     def __repr__(self):
         return "<Tab: {0}, {1} - tstId: {2}, parent: {3}> - children: {4}".format(self.title, self.url, self.tstId, self.tstParent, self.children)
@@ -132,54 +124,7 @@ def openTabTree(tab):
     for child in tab.children:
         openTabTree(child)
 
-# import tkinter as tk
-# import tkinter.ttk as ttk
-
-# def bDown_Shift(event):
-#     tv = event.widget
-#     select = [tv.index(s) for s in tv.selection()]
-#     select.append(tv.index(tv.identify_row(event.y)))
-#     select.sort()
-#     for i in range(select[0],select[-1]+1,1):
-#         tv.selection_add(tv.get_children()[i])
-
-# def bDown(event):
-#     tv = event.widget
-#     if tv.identify_row(event.y) not in tv.selection():
-#         tv.selection_set(tv.identify_row(event.y))
-
-# def bUp(event):
-#     tv = event.widget
-#     if tv.identify_row(event.y) in tv.selection():
-#         tv.selection_set(tv.identify_row(event.y))
-
-# def bUp_Shift(event):
-#     pass
-
-# def bMove(event):
-#     tv = event.widget
-#     moveto = tv.index(tv.identify_row(event.y))
-#     for s in tv.selection():
-#         tv.move(s, '', moveto)
-
-# root = tk.Tk()
-
-# tree = ttk.Treeview(columns=("col1","col2"),
-#                     displaycolumns="col2",
-#                     selectmode='none')
-
-# # insert some items into the tree
-# for i in range(10):
-#     tree.insert('', 'end',iid='line%i' % i, text='line:%s' % i, values=('', i))
-
-# tree.grid()
-# tree.bind("<ButtonPress-1>",bDown)
-# tree.bind("<ButtonRelease-1>",bUp, add='+')
-# tree.bind("<B1-Motion>",bMove, add='+')
-# tree.bind("<Shift-ButtonPress-1>",bDown_Shift, add='+')
-# tree.bind("<Shift-ButtonRelease-1>",bUp_Shift, add='+')
-
-# root.mainloop()
+################################################## GUI
 
 import tkinter as tk
 from tkinter import ttk
@@ -252,14 +197,15 @@ class Application(ttk.Frame):
             self.annotateTab()
 
     def onQuit(self):
-        if messagebox.askyesno("Quit?", "Sure you want to quit? (Don't forget to save!)"):
-            self.parent.destroy()
+        if messagebox.askyesno("Save?", "Save before quitting?"):
+            saveTabs()
+        self.parent.destroy()
 
     def addChildren(self, element, rootItem):
         for child in element.children:
-            tkImg = blackTKImage
-            if child.imageObject:
-                tkImg = ImageTk.PhotoImage(child.imageObject)
+            tkImg = Favicon.getByName(child.image).getTKImage()
+            if tkImg == None: tkImg = blackTKImage
+
             item = self.treeView.insert(rootItem, "end", getObjName(child), text=getObjLabel(child),
                         open=(not child.collapsed), image=tkImg)
             self.addChildren(child, item)
@@ -303,14 +249,49 @@ class Application(ttk.Frame):
         mergeTabs()
         self.fillTree()
 
-#loadTabs()
+class Favicon(object):
+    nameMap = {}
+
+    def __init__(self, name):
+        self.name = name
+        self.imageObject = None
+        self.tkImage = None
+
+        if self.name != None:
+            if name.startswith("http"):
+                pass
+            elif name.startswith("data:image/png;base64"):
+                f = io.BytesIO(base64.b64decode(name[22:]))
+                self.imageObject = Image.open(f).convert(mode="RGB")
+                self.imageObject.thumbnail((16, 16))
+
+    def getTKImage(self):
+        if self.tkImage == None:
+            if self.imageObject != None:
+                self.tkImage = ImageTk.PhotoImage(self.imageObject)
+                print(self.tkImage)
+        return self.tkImage
+
+    def __repr__(self):
+        return "<Favicon: name={}, imageObject={}, tkImage={}>".format(self.name, self.imageObject, self.tkImage)
+
+    @staticmethod
+    def getByName(name):
+        if name in Favicon.nameMap:
+            return Favicon.nameMap[name]
+        else:
+            fav = Favicon(name)
+            Favicon.nameMap[name] = fav
+            return fav
+
+loadTabs()
 
 root = tk.Tk()
 root.state('zoomed') # maximized
 root.title("TabManager")
 
 blackImage = Image.new(mode="RGB", size=(16, 16), color=(255, 0, 0))
-blackTKImage = ImageTk.PhotoImage(blackImage)
+blackTKImage = ImageTk.PhotoImage(image=blackImage)
 
 root.grid_columnconfigure(0, weight=1)
 root.grid_rowconfigure(0, weight=1)
