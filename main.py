@@ -1,0 +1,319 @@
+import datetime
+import json
+import os
+import io
+from PIL import Image, ImageTk
+import base64
+import webbrowser
+
+profileDir = "C:\\Users\\Joel\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\6efcy1z3.default"
+
+# TODO:
+# Images, imageObject fixen
+# Drag/Drop? (see initial commit)
+
+class Tab(object):
+    def __init__(self, url, title, image):
+        self.url = url
+        self.title = title
+        self.image = image
+        self.children = []
+        self.annotation = None
+        self.collapsed = False
+        self.tstId = None
+        self.tstParent = None
+        self.imageObject = None
+
+        if self.image != None:
+            if self.image.startswith("http"):
+                pass
+            elif self.image.startswith("data:image/png;base64"):
+                f = io.BytesIO(base64.b64decode(self.image[22:]))
+                self.imageObject = Image.open(f)
+
+    def __repr__(self):
+        return "<Tab: {0}, {1} - tstId: {2}, parent: {3}> - children: {4}".format(self.title, self.url, self.tstId, self.tstParent, self.children)
+
+    def toJSON(self):
+        return self.__dict__
+
+class Window(object):
+    def __init__(self, windowIndex, tabs):
+        self.annotation = None
+        self.title = "Window #{0}, {1} Tabs - {2}".format(windowIndex + 1, len(tabs), datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
+        self.children = tabs
+
+    def __repr__(self):
+        return "<Window: title = {0}> - tabs: {1}".format(self.title, self.children)
+
+    def toJSON(self):
+        return self.__dict__
+
+def JSONSerializer(obj):
+    if hasattr(obj, "toJSON"):
+        ret = obj.toJSON()
+        ret["__" + obj.__class__.__name__ + "__"] = True
+        return ret
+    else:
+        quit("fuck you")
+
+def JSONDeserializer(dct):
+    if "__Tab__" in dct:
+        ret = Tab(dct["url"], dct["title"], dct["image"])
+        ret.children = JSONDeserializer(dct["children"])
+        ret.collapsed = dct["collapsed"]
+        ret.tstId = dct["tstId"]
+        ret.tstParent = dct["tstParent"]
+        return ret
+    elif "__Window__" in dct:
+        ret = Window(0, JSONDeserializer(dct["children"]))
+        ret.title = dct["title"]
+        return ret
+    else:
+        return dct
+
+windows = []
+treestyleTabIdMap = {}
+
+def mergeTabs():
+    with open(os.path.join(profileDir, "sessionstore-backups/recovery.js"), encoding = "utf-8") as inFile:
+        ffData = json.load(inFile)
+        for windowIndex, window in enumerate(ffData["windows"]):
+            tabList = []
+            for tabIndex, tab in enumerate(window["tabs"]):
+                entry = tab["entries"][tab["index"] - 1]
+                if "title" not in entry:
+                    entry["title"] = entry["url"]
+                tabObj = Tab(entry["url"], entry["title"], tab["image"])
+                tabObj.collapsed = tab["extData"].get("treestyletab-subtree-collapsed", "false") == "true"
+                tabObj.tstId = tab["extData"]["treestyletab-id"]
+                tabObj.tstParent = tab["extData"].get("treestyletab-parent", None)
+                treestyleTabIdMap[tabObj.tstId] = tabObj
+
+                if tabObj.tstParent != None:
+                    parent = treestyleTabIdMap[tabObj.tstParent]
+                    parent.children.append(tabObj)
+                else:
+                    tabList.append(tabObj)
+
+            windows.append(Window(windowIndex, tabList))
+
+def loadTabs():
+    try:
+        with open("tabs.json", "r", encoding = "utf-8") as inFile:
+            global windows
+            windows = json.load(inFile, object_hook = JSONDeserializer)
+    except FileNotFoundError as e:
+        print("tabs.json not found!")
+
+def saveTabs():
+    with open("tabs.json", "w", encoding = "utf-8") as outFile:
+        json.dump(windows, outFile, default = JSONSerializer)
+
+def printSingleTab(tab, depth = 0):
+    prefix = ""
+    if len(tab.children) > 0:
+        if tab.collapsed:
+            prefix = "+ "
+        else:
+            prefix = "- "
+    print("    "*depth + prefix + tab.title.encode("utf-8").decode("cp850"))
+    for child in tab.children:
+        printSingleTab(child, depth + 1)
+
+def printTabs():
+    for window in windows:
+        print("---- " + window.title)
+        for tab in window.children:
+            printSingleTab(tab)
+
+def openTabTree(tab):
+    webbrowser.open(tab.url)
+    for child in tab.children:
+        openTabTree(child)
+
+# import tkinter as tk
+# import tkinter.ttk as ttk
+
+# def bDown_Shift(event):
+#     tv = event.widget
+#     select = [tv.index(s) for s in tv.selection()]
+#     select.append(tv.index(tv.identify_row(event.y)))
+#     select.sort()
+#     for i in range(select[0],select[-1]+1,1):
+#         tv.selection_add(tv.get_children()[i])
+
+# def bDown(event):
+#     tv = event.widget
+#     if tv.identify_row(event.y) not in tv.selection():
+#         tv.selection_set(tv.identify_row(event.y))
+
+# def bUp(event):
+#     tv = event.widget
+#     if tv.identify_row(event.y) in tv.selection():
+#         tv.selection_set(tv.identify_row(event.y))
+
+# def bUp_Shift(event):
+#     pass
+
+# def bMove(event):
+#     tv = event.widget
+#     moveto = tv.index(tv.identify_row(event.y))
+#     for s in tv.selection():
+#         tv.move(s, '', moveto)
+
+# root = tk.Tk()
+
+# tree = ttk.Treeview(columns=("col1","col2"),
+#                     displaycolumns="col2",
+#                     selectmode='none')
+
+# # insert some items into the tree
+# for i in range(10):
+#     tree.insert('', 'end',iid='line%i' % i, text='line:%s' % i, values=('', i))
+
+# tree.grid()
+# tree.bind("<ButtonPress-1>",bDown)
+# tree.bind("<ButtonRelease-1>",bUp, add='+')
+# tree.bind("<B1-Motion>",bMove, add='+')
+# tree.bind("<Shift-ButtonPress-1>",bDown_Shift, add='+')
+# tree.bind("<Shift-ButtonRelease-1>",bUp_Shift, add='+')
+
+# root.mainloop()
+
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox, simpledialog
+from tkinter.constants import NSEW
+
+objNameMap = {}
+objNameCounter = 0
+def getObjName(obj):
+    global objNameCounter
+    name = "o" + str(objNameCounter)
+    objNameCounter += 1
+    objNameMap[name] = obj
+    return name
+
+def getObjLabel(obj):
+    if obj.annotation != None:
+        return obj.title + " --- # " + obj.annotation
+    else:
+        return obj.title
+
+class Application(ttk.Frame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.rowconfigure(1, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.grid(sticky=NSEW)
+        self.createWidgets()
+        self.treeView.bind("#", self.keyHandler)
+
+        if len(windows) == 0:
+            messagebox.showwarning("File not found", "tabs.json could not be loaded!")
+        else:
+            self.fillTree()
+
+    # Für Icons:
+    # http://infohost.nmt.edu/tcc/help/pubs/tkinter/web/ttk-Treeview.html insert-"image"-argument
+    # http://infohost.nmt.edu/tcc/help/pubs/pil/image-tk.html
+    # http://stackoverflow.com/questions/28139637/how-can-i-display-an-image-using-pillow
+    def createWidgets(self):
+        self.buttonFrame = ttk.Frame(self)
+        self.buttonFrame.grid(row=0, sticky=NSEW)
+        self.buttonFrame.rowconfigure(0, weight=1)
+        self.buttonFrame.columnconfigure(0, weight=1)
+
+        self.mergeTabsButton = ttk.Button(self.buttonFrame, text="Merge", command=self.mergeTabs)
+        self.mergeTabsButton.grid(row=0, column=0, sticky=tk.NE)
+
+        self.annotateTabsButton = ttk.Button(self.buttonFrame, text="Annotate", command=self.annotateTab)
+        self.annotateTabsButton.grid(row=0, column=1, sticky=tk.NE)
+
+        self.saveButton = ttk.Button(self.buttonFrame, text="Save", command=self.saveTabs)
+        self.saveButton.grid(row=0, column=2, sticky=tk.NE)
+
+        self.quitButton = ttk.Button(self.buttonFrame, text="Quit", command=self.onQuit)
+        self.quitButton.grid(row=0, column=3, sticky=tk.NE)
+
+        self.treeView = ttk.Treeview(self)
+        self.treeView.grid(row=1, sticky=NSEW)
+        self.treeView.bind("<Double-1>", self.openTab)
+
+        self.treeScroll = ttk.Scrollbar(self)
+        self.treeScroll.grid(row=1, column=1, sticky=NSEW)
+        self.treeScroll.config(command=self.treeView.yview)
+        self.treeView.configure(yscroll=self.treeScroll.set)
+
+    def keyHandler(self, event):
+        if event.char == "#":
+            self.annotateTab()
+
+    def onQuit(self):
+        if messagebox.askyesno("Quit?", "Sure you want to quit? (Don't forget to save!)"):
+            self.parent.destroy()
+
+    def addChildren(self, element, rootItem):
+        for child in element.children:
+            tkImg = blackTKImage
+            if child.imageObject:
+                tkImg = ImageTk.PhotoImage(child.imageObject)
+            item = self.treeView.insert(rootItem, "end", getObjName(child), text=getObjLabel(child),
+                        open=(not child.collapsed), image=tkImg)
+            self.addChildren(child, item)
+
+    def fillTree(self):
+        self.treeView.delete(*self.treeView.get_children())
+        for window in windows:
+            windowItem = self.treeView.insert("", "end", getObjName(window), text=getObjLabel(window), open=True)
+            self.addChildren(window, windowItem)
+
+    def saveTabs(self):
+        saveTabs()
+
+    def annotateTab(self):
+        if len(self.treeView.selection()) > 0:
+            annotation = simpledialog.askstring("Annotate tab", "Annotation")
+            if annotation != None:
+                for item in self.treeView.selection():
+                    if item in objNameMap:
+                        obj = objNameMap[item]
+                        obj.annotation = annotation
+                        self.treeView.item(item, text=getObjLabel(obj))
+                    else:
+                        print("Unkown tab id (possibly window): ", item)
+
+    def openTab(self, event):
+        item = self.treeView.identify('item',event.x,event.y)
+
+        if item in objNameMap:
+            tab = objNameMap[item]
+            if len(tab.children) > 0:
+                if messagebox.askyesno("Open multiple tabs?", "You are about to open more than one tab. Sure?"):
+                    openTabTree(tab)
+            else:
+                webbrowser.open(tab.url)
+        else:
+            print("Unkown tab id (possibly window): ", item)
+        return "break" # Don't propagate this event - don't open/close the tree view item
+
+    def mergeTabs(self):
+        mergeTabs()
+        self.fillTree()
+
+#loadTabs()
+
+root = tk.Tk()
+root.state('zoomed') # maximized
+root.title("TabManager")
+
+blackImage = Image.new(mode="RGB", size=(16, 16), color=(255, 0, 0))
+blackTKImage = ImageTk.PhotoImage(blackImage)
+
+root.grid_columnconfigure(0, weight=1)
+root.grid_rowconfigure(0, weight=1)
+app = Application(parent=root)
+root.protocol("WM_DELETE_WINDOW", app.onQuit)
+app.mainloop()
