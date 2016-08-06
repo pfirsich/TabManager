@@ -5,11 +5,14 @@ import io
 from PIL import Image, ImageTk
 import base64
 import webbrowser
+import concurrent.futures
+import requests
 
 profileDir = "C:\\Users\\Joel\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\6efcy1z3.default"
 
 # TODO:
-# Images, imageObject fixen
+# Favicon-Downloader-Worker and dynamic update
+# deleting tabs
 # Drag/Drop? (see initial commit)
 
 class Tab(object):
@@ -186,6 +189,8 @@ class Application(ttk.Frame):
         self.treeView = ttk.Treeview(self)
         self.treeView.grid(row=1, sticky=NSEW)
         self.treeView.bind("<Double-1>", self.openTab)
+        self.treeView.tag_configure('window', background='grey')
+        self.treeView.tag_configure('window', foreground='white')
 
         self.treeScroll = ttk.Scrollbar(self)
         self.treeScroll.grid(row=1, column=1, sticky=NSEW)
@@ -204,8 +209,6 @@ class Application(ttk.Frame):
     def addChildren(self, element, rootItem):
         for child in element.children:
             tkImg = Favicon.getByName(child.image).getTKImage()
-            if tkImg == None: tkImg = blackTKImage
-
             item = self.treeView.insert(rootItem, "end", getObjName(child), text=getObjLabel(child),
                         open=(not child.collapsed), image=tkImg)
             self.addChildren(child, item)
@@ -213,11 +216,23 @@ class Application(ttk.Frame):
     def fillTree(self):
         self.treeView.delete(*self.treeView.get_children())
         for window in windows:
-            windowItem = self.treeView.insert("", "end", getObjName(window), text=getObjLabel(window), open=True)
+            windowItem = self.treeView.insert("", "end", getObjName(window), text=getObjLabel(window), open=True, image=windowTKImage, tags=('window',))
             self.addChildren(window, windowItem)
 
     def saveTabs(self):
         saveTabs()
+
+    def updateFavicons(self, root=None):
+        #if root==None: print("update")
+        for item in self.treeView.get_children(root):
+            obj = objNameMap[item]
+            if hasattr(obj, "image"):
+                tkImg = Favicon.getByName(obj.image).getTKImage()
+                self.treeView.item(item, image=tkImg)
+            self.updateFavicons(item)
+
+        if root == None:
+            self.after(1000, self.updateFavicons)
 
     def annotateTab(self):
         if len(self.treeView.selection()) > 0:
@@ -249,27 +264,54 @@ class Application(ttk.Frame):
         mergeTabs()
         self.fillTree()
 
+def downloadImage(url):
+    try:
+        r = requests.get(url)
+        img = Image.open(io.BytesIO(r.content))
+        img.thumbnail((16, 16))
+    except BaseException as e:
+        print(url, " - exception: ", e)
+        return None
+    return img
+
 class Favicon(object):
     nameMap = {}
+    threadPoolExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
     def __init__(self, name):
         self.name = name
         self.imageObject = None
         self.tkImage = None
+        self.downloading = False
 
         if self.name != None:
             if name.startswith("http"):
-                pass
+                self.imageObject = loadingImage
+                self.tkImage = loadingTKImage
+                self.iconFuture = Favicon.threadPoolExecutor.submit(downloadImage, self.name)
+                self.downloading = True
             elif name.startswith("data:image/png;base64"):
                 f = io.BytesIO(base64.b64decode(name[22:]))
                 self.imageObject = Image.open(f).convert(mode="RGB")
                 self.imageObject.thumbnail((16, 16))
+            else:
+                self.imageObject = whiteImage
+                self.tkImage = whiteTKImage
+        else:
+            self.imageObject = whiteImage
+            self.tkImage = whiteTKImage
 
     def getTKImage(self):
         if self.tkImage == None:
             if self.imageObject != None:
                 self.tkImage = ImageTk.PhotoImage(self.imageObject)
                 print(self.tkImage)
+        if self.downloading and self.iconFuture.done():
+            img = self.iconFuture.result()
+            if img:
+                self.imageObject = img
+                self.tkImage = ImageTk.PhotoImage(self.imageObject)
+            self.downloading = False
         return self.tkImage
 
     def __repr__(self):
@@ -290,11 +332,22 @@ root = tk.Tk()
 root.state('zoomed') # maximized
 root.title("TabManager")
 
-blackImage = Image.new(mode="RGB", size=(16, 16), color=(255, 0, 0))
-blackTKImage = ImageTk.PhotoImage(image=blackImage)
+whiteImage = Image.new(mode="RGB", size=(16, 16), color=(255, 255, 255))
+whiteTKImage = ImageTk.PhotoImage(whiteImage)
+
+loadingImage = Image.open("load.png")
+loadingImage.thumbnail((16, 16))
+loadingTKImage = ImageTk.PhotoImage(loadingImage)
+
+windowImage = Image.open("window.png")
+windowImage.thumbnail((16, 16))
+windowTKImage = ImageTk.PhotoImage(windowImage)
 
 root.grid_columnconfigure(0, weight=1)
 root.grid_rowconfigure(0, weight=1)
+
 app = Application(parent=root)
 root.protocol("WM_DELETE_WINDOW", app.onQuit)
+root.after(1000, app.updateFavicons)
+
 app.mainloop()
