@@ -58,6 +58,12 @@ class TreeItemBase(object):
         for child in self.children:
             child.findParents()
 
+    def totalChildrenCount(self):
+        count = 0
+        for child in self.children:
+            count += 1 + child.totalChildrenCount()
+        return count
+
     def toJSON(self):
         dct = self.__dict__.copy()
         dct.pop("parent")
@@ -174,9 +180,10 @@ def saveTabs():
     with open("tabs.json", "w", encoding = "utf-8") as outFile:
         json.dump(windows, outFile, default = JSONSerializer, indent=4)
 
-def openTabTree(tab):
-    webbrowser.open(tab.url)
-    for child in tab.children:
+def openTabTree(obj):
+    if hasattr(obj, "url"):
+        webbrowser.open(obj.url)
+    for child in obj.children:
         openTabTree(child)
 
 ################################################## GUI
@@ -229,7 +236,6 @@ class Application(ttk.Frame):
         self.treeView = ttk.Treeview(self)
         self.treeView.grid(row=1, sticky=NSEW)
         self.treeView.bind("<Double-1>", self.openTab)
-        self.treeView.bind("#", self.keyHandler)
         self.treeView.bind("<Key>", self.keyHandler)
         self.treeView.bind("<Button-3>", self.popup)
         self.treeView.bind("<<TreeviewOpen>>", self.openItem)
@@ -319,6 +325,8 @@ class Application(ttk.Frame):
             self.annotateTab()
         elif event.keysym == "Delete":
             self.deleteTab()
+        elif event.keysym == "Return":
+            self.openTab(None)
 
     def onQuit(self):
         if messagebox.askyesno("Save?", "Save before quitting?"):
@@ -364,14 +372,26 @@ class Application(ttk.Frame):
             self.treeView.focus()
 
     def openTab(self, event):
-        item = self.treeView.identify('item', event.x, event.y)
+        title, message = "Open multiple tabs?", "You are about to open {} tabs. Sure?"
 
-        tab = TreeItemBase.getByName(item)
-        if len(tab.children) > 0:
-            if messagebox.askyesno("Open multiple tabs?", "You are about to open more than one tab. Sure?"):
-                openTabTree(tab)
-        else:
-            webbrowser.open(tab.url)
+        selection = self.treeView.selection()
+        if len(selection) > 0:
+            if len(selection) == 1:
+                obj = TreeItemBase.getByName(selection[0])
+                if len(obj.children) > 0:
+                    tabCount = obj.totalChildrenCount()
+                    if hasattr(obj, "url"): tabCount += 1 # not a window
+                    if messagebox.askyesno(title, message.format(tabCount)):
+                        openTabTree(obj)
+                else:
+                    webbrowser.open(tab.url)
+            else:
+                if messagebox.askyesno(title, message.format(len(selection))):
+                    for item in selection:
+                        obj = TreeItemBase.getByName(item)
+                        if hasattr(obj, "url"):
+                            webbrowser.open(obj.url)
+
         return "break" # Don't propagate this event - don't open/close the tree view item
 
     def mergeTabs(self):
