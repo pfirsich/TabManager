@@ -13,44 +13,97 @@ profileDir = "C:\\Users\\Joel\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\6ef
 # TODO:
 # ~
 
-class Tab(object):
-    def __init__(self, url, title, image):
-        self.url = url
-        self.title = title
-        self.image = image
+class TreeItemBase(object):
+    idCounter = 0
+    idItemMap = {}
+
+    def __init__(self):
+        self.id = TreeItemBase.idCounter
+        TreeItemBase.idCounter += 1
+        self.title = None
         self.children = []
         self.annotation = None
-        self.collapsed = False
-        self.tstId = None
-        self.tstParent = None
         self.parent = None
+        self.collapsed = False
+        self.parentId = None
 
-    def __repr__(self):
-        return "<Tab: {0}, {1} - tstId: {2}, parent: {3}> - children: {4}".format(self.title, self.url, self.tstId, self.tstParent, self.children)
+        TreeItemBase.idItemMap[self.id] = self
+
+    def getName(self):
+        return "o" + str(self.id)
+
+    def getLabel(self):
+        if self.annotation != None:
+            return self.title + " --- # " + self.annotation
+        else:
+            return self.title
+
+    def reparent(self, newParent):
+        if self.parent != None:
+            self.parent.children.remove(self)
+        newParent.children.append(self)
+        self.parentId = newParent.id
+        self.parent = newParent
+
+    def changeId(self, newId):
+        TreeItemBase.idItemMap.pop(self.id)
+        self.id = newId
+        TreeItemBase.idItemMap[self.id] = self
+        if self.id >= TreeItemBase.idCounter:
+            TreeItemBase.idCounter = self.id + 1
+
+    def findParents(self):
+        if self.parentId != None:
+            self.parent = TreeItemBase.getById(self.parentId)
+        for child in self.children:
+            child.findParents()
 
     def toJSON(self):
         dct = self.__dict__.copy()
         dct.pop("parent")
         return dct
 
-class Window(object):
-    def __init__(self, windowIndex=None, tabs=None):
-        self.annotation = None
-        self.collapsed = False
-        self.title = ""
-        self.children = None
-        if windowIndex != None and tabs != None:
-            self.set(windowIndex, tabs)
+    @staticmethod
+    def getById(iid):
+        return TreeItemBase.idItemMap[iid]
 
-    def set(self, windowIndex, tabs):
-        self.title = "Window #{0}, {1} Tabs - {2}".format(windowIndex + 1, len(tabs), datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
-        self.children = tabs
+    @staticmethod
+    def getByName(name):
+        return TreeItemBase.idItemMap[int(name[1:])]
+
+class Tab(TreeItemBase):
+    tabCounter = 0
+
+    def __init__(self, url, title, image):
+        TreeItemBase.__init__(self)
+        self.title = title
+        self.url = url
+        self.image = image
+        self.tstId = None
+        self.tstParent = None
 
     def __repr__(self):
-        return "<Window: title = {0}> - tabs: {1}".format(self.title, self.children)
+        return "<Tab: id={}, title={}, url={}>".format(self.id, self.title, self.url)
 
     def toJSON(self):
-        return self.__dict__
+        dct = TreeItemBase.toJSON(self)
+        dct.pop("tstId")
+        dct.pop("tstParent")
+        return dct
+
+class Window(TreeItemBase):
+    def __init__(self):
+        TreeItemBase.__init__(self)
+
+    def setTitle(self, windowIndex):
+        self.title = "Window #{0}, {1} Tabs - {2}".format(windowIndex + 1, len(self.children), datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
+
+    def __repr__(self):
+        return "<Window: id = {}, title = {}>".format(self.id, self.title)
+
+    def toJSON(self):
+        dct = TreeItemBase.toJSON(self)
+        return dct
 
 def JSONSerializer(obj):
     if hasattr(obj, "toJSON"):
@@ -58,22 +111,23 @@ def JSONSerializer(obj):
         ret["__" + obj.__class__.__name__ + "__"] = True
         return ret
     else:
-        quit("fuck you")
+        quit("Cannot serialize object")
 
 def JSONDeserializer(dct):
-    if "__Tab__" in dct:
-        ret = Tab(dct["url"], dct["title"], dct["image"])
+    if "__Tab__" in dct or "__Window__" in dct:
+        if "__Tab__" in dct:
+            ret = Tab(dct["url"], dct["title"], dct["image"])
+        elif "__Window__" in dct:
+            ret = Window()
+            ret.title = dct["title"]
+        else:
+            quit("DANGER DANGER!")
+
+        ret.changeId(dct["id"])
+        ret.parentId = dct["parentId"]
+        ret.annotation = dct["annotation"]
+        ret.collapsed = dct["collapsed"]
         ret.children = JSONDeserializer(dct["children"])
-        ret.collapsed = dct["collapsed"]
-        ret.tstId = dct["tstId"]
-        ret.tstParent = dct["tstParent"]
-        ret.annotation = dct["annotation"]
-        return ret
-    elif "__Window__" in dct:
-        ret = Window(0, JSONDeserializer(dct["children"]))
-        ret.title = dct["title"]
-        ret.annotation = dct["annotation"]
-        ret.collapsed = dct["collapsed"]
         return ret
     else:
         return dct
@@ -87,7 +141,6 @@ def mergeTabs():
         for windowIndex, window in enumerate(ffData["windows"]):
             win = Window()
 
-            tabList = []
             for tabIndex, tab in enumerate(window["tabs"]):
                 entry = tab["entries"][tab["index"] - 1]
                 if "title" not in entry:
@@ -100,13 +153,11 @@ def mergeTabs():
 
                 if tabObj.tstParent != None:
                     parent = treestyleTabIdMap[tabObj.tstParent]
-                    parent.children.append(tabObj)
-                    tabObj.parent = parent
+                    tabObj.reparent(parent)
                 else:
-                    tabList.append(tabObj)
-                    tabObj.parent = win
+                    tabObj.reparent(win)
 
-            win.set(windowIndex, tabList)
+            win.setTitle(windowIndex)
             windows.append(win)
 
 def loadTabs():
@@ -114,29 +165,14 @@ def loadTabs():
         with open("tabs.json", "r", encoding = "utf-8") as inFile:
             global windows
             windows = json.load(inFile, object_hook = JSONDeserializer)
+        for window in windows:
+            window.findParents()
     except FileNotFoundError as e:
         print("tabs.json not found!")
 
 def saveTabs():
     with open("tabs.json", "w", encoding = "utf-8") as outFile:
-        json.dump(windows, outFile, default = JSONSerializer)
-
-def printSingleTab(tab, depth = 0):
-    prefix = ""
-    if len(tab.children) > 0:
-        if tab.collapsed:
-            prefix = "+ "
-        else:
-            prefix = "- "
-    print("    "*depth + prefix + tab.title.encode("utf-8").decode("cp850"))
-    for child in tab.children:
-        printSingleTab(child, depth + 1)
-
-def printTabs():
-    for window in windows:
-        print("---- " + window.title)
-        for tab in window.children:
-            printSingleTab(tab)
+        json.dump(windows, outFile, default = JSONSerializer, indent=4)
 
 def openTabTree(tab):
     webbrowser.open(tab.url)
@@ -150,25 +186,10 @@ from tkinter import ttk
 from tkinter import messagebox, simpledialog
 from tkinter.constants import NSEW
 
-objNameMap = {}
-objNameCounter = 0
-def getObjName(obj):
-    global objNameCounter
-    name = "o" + str(objNameCounter)
-    objNameCounter += 1
-    objNameMap[name] = obj
-    return name
-
-def getObjLabel(obj):
-    if obj.annotation != None:
-        return obj.title + " --- # " + obj.annotation
-    else:
-        return obj.title
-
 class Application(ttk.Frame):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.parent = parent
+    def __init__(self, master=None):
+        super().__init__(master)
+        self.master = master
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
         self.grid(sticky=NSEW)
@@ -228,12 +249,12 @@ class Application(ttk.Frame):
 
     def openItem(self, event):
         item = self.treeView.selection()[0]
-        obj = objNameMap[item]
+        obj = TreeItemBase.getByName(item)
         obj.collapsed = False
 
     def closeItem(self, event):
         item = self.treeView.selection()[0]
-        obj = objNameMap[item]
+        obj = TreeItemBase.getByName(item)
         obj.collapsed = True
 
     def cutTab(self):
@@ -241,7 +262,7 @@ class Application(ttk.Frame):
         if len(selected) > 0:
             item = selected[0]
 
-            if item in objNameMap and isinstance(objNameMap[item], Tab):
+            if isinstance(TreeItemBase.getByName(item), Tab):
                 self.tabClipboard = item
             else:
                 self.tabClipboard = None
@@ -253,40 +274,44 @@ class Application(ttk.Frame):
             item = selected[0]
 
             if self.tabClipboard != None and item != self.tabClipboard:
-                self.treeView.move(self.tabClipboard, item, "end")
+                toInsert = TreeItemBase.getByName(self.tabClipboard)
+                if isinstance(toInsert, Tab):
+                    self.treeView.move(self.tabClipboard, item, "end")
 
-                toInsert = objNameMap[self.tabClipboard]
-                if toInsert.parent == None:
-                    print(toInsert)
-                toInsert.parent.children.remove(toInsert)
-                insertInto = objNameMap[item]
-                insertInto.children.append(toInsert)
+                    if toInsert.parent == None:
+                        print(toInsert)
+                    insertInto = TreeItemBase.getByName(item)
+                    toInsert.reparent(insertInto)
+                else:
+                    print("Windows cannot be inserted!")
 
     def copyURL(self):
         selected = self.treeView.selection()
         if len(selected) > 0:
             item = selected[0]
 
-            if item in objNameMap:
-                tab = objNameMap[item]
-                if hasattr(tab, "url"):
-                    self.parent.clipboard_clear()
-                    self.parent.clipboard_append(tab.url)
-            else:
-                print("Unkown tab id (possibly window): ", item)
+            tab = TreeItemBase.getByName(item)
+            if hasattr(tab, "url"):
+                self.master.clipboard_clear()
+                self.master.clipboard_append(tab.url)
+
+    def printTree(self, item):
+        print(item)
+        for child in self.treeView.get_children(item):
+            self.printTree(child)
 
     def deleteTab(self):
         if len(self.treeView.selection()) > 0:
             if messagebox.askyesno("Delete?", "Are you sure you want to delete the selected tab trees?"):
                 for item in self.treeView.selection():
-                    obj = objNameMap[item]
+                    obj = TreeItemBase.getByName(item)
                     if isinstance(obj, Window):
                         windows.remove(obj)
                     elif isinstance(obj, Tab):
                         obj.parent.children.remove(obj)
                     else:
                         print(":'(")
-                self.treeView.delete(self.treeView.selection())
+                self.treeView.delete(*self.treeView.selection())
 
     def keyHandler(self, event):
         #print("key", event.char, event.keysym)
@@ -298,18 +323,18 @@ class Application(ttk.Frame):
     def onQuit(self):
         if messagebox.askyesno("Save?", "Save before quitting?"):
             saveTabs()
-        self.parent.destroy()
+        self.master.destroy()
 
     def addChildren(self, element, rootItem):
         for child in element.children:
             tkImg = Favicon.getByName(child.image).getTKImage()
-            item = self.treeView.insert(rootItem, "end", getObjName(child), text=getObjLabel(child), open=not child.collapsed, image=tkImg)
+            item = self.treeView.insert(rootItem, "end", child.getName(), text=child.getLabel(), open=not child.collapsed, image=tkImg)
             self.addChildren(child, item)
 
     def fillTree(self):
         self.treeView.delete(*self.treeView.get_children())
         for window in windows:
-            windowItem = self.treeView.insert("", "end", getObjName(window), text=getObjLabel(window), open=not window.collapsed, image=windowTKImage, tags=('window',))
+            windowItem = self.treeView.insert("", "end", window.getName(), text=window.getLabel(), open=not window.collapsed, image=windowTKImage, tags=('window',))
             self.addChildren(window, windowItem)
 
     def saveTabs(self):
@@ -318,7 +343,7 @@ class Application(ttk.Frame):
     def updateFavicons(self, root=None):
         #if root==None: print("update")
         for item in self.treeView.get_children(root):
-            obj = objNameMap[item]
+            obj = TreeItemBase.getByName(item)
             if hasattr(obj, "image"):
                 tkImg = Favicon.getByName(obj.image).getTKImage()
                 self.treeView.item(item, image=tkImg)
@@ -332,27 +357,21 @@ class Application(ttk.Frame):
             annotation = simpledialog.askstring("Annotate tab", "Annotation")
             if annotation != None:
                 for item in self.treeView.selection():
-                    if item in objNameMap:
-                        obj = objNameMap[item]
-                        obj.annotation = annotation
-                        self.treeView.item(item, text=getObjLabel(obj))
-                    else:
-                        print("Unkown tab id (possibly window): ", item)
+                    obj = TreeItemBase.getByName(item)
+                    obj.annotation = annotation
+                    self.treeView.item(item, text=getObjLabel(obj))
             self.treeView.focus_set()
             self.treeView.focus()
 
     def openTab(self, event):
         item = self.treeView.identify('item', event.x, event.y)
 
-        if item in objNameMap:
-            tab = objNameMap[item]
-            if len(tab.children) > 0:
-                if messagebox.askyesno("Open multiple tabs?", "You are about to open more than one tab. Sure?"):
-                    openTabTree(tab)
-            else:
-                webbrowser.open(tab.url)
+        tab = TreeItemBase.getByName(item)
+        if len(tab.children) > 0:
+            if messagebox.askyesno("Open multiple tabs?", "You are about to open more than one tab. Sure?"):
+                openTabTree(tab)
         else:
-            print("Unkown tab id (possibly window): ", item)
+            webbrowser.open(tab.url)
         return "break" # Don't propagate this event - don't open/close the tree view item
 
     def mergeTabs(self):
@@ -440,7 +459,7 @@ windowTKImage = ImageTk.PhotoImage(windowImage)
 root.grid_columnconfigure(0, weight=1)
 root.grid_rowconfigure(0, weight=1)
 
-app = Application(parent=root)
+app = Application(master=root)
 root.protocol("WM_DELETE_WINDOW", app.onQuit)
 root.after(1000, app.updateFavicons)
 
