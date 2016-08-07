@@ -11,8 +11,9 @@ import requests
 profileDir = "C:\\Users\\Joel\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\6efcy1z3.default"
 
 # TODO:
-# Focus pocus nach annotation
-# Drag/Drop? (see initial commit)
+# Save collapse state
+# save deletions
+# save rearrangements
 
 class Tab(object):
     def __init__(self, url, title, image):
@@ -158,16 +159,18 @@ class Application(ttk.Frame):
         self.createWidgets()
         self.treeView.bind("#", self.keyHandler)
         self.treeView.bind("<Key>", self.keyHandler)
+        self.treeView.bind("<Button-3>", self.popup)
+        self.tabClipboard = None
 
         if len(windows) == 0:
             messagebox.showwarning("File not found", "tabs.json could not be loaded!")
         else:
             self.fillTree()
 
-    # Für Icons:
-    # http://infohost.nmt.edu/tcc/help/pubs/tkinter/web/ttk-Treeview.html insert-"image"-argument
-    # http://infohost.nmt.edu/tcc/help/pubs/pil/image-tk.html
-    # http://stackoverflow.com/questions/28139637/how-can-i-display-an-image-using-pillow
+    def popup(self, event):
+        self.menu.post(event.x_root, event.y_root)
+
+    # http://infohost.nmt.edu/tcc/help/pubs/tkinter/web/ttk-Treeview.html
     def createWidgets(self):
         self.buttonFrame = ttk.Frame(self)
         self.buttonFrame.grid(row=0, sticky=NSEW)
@@ -200,6 +203,43 @@ class Application(ttk.Frame):
         self.treeScroll.config(command=self.treeView.yview)
         self.treeView.configure(yscroll=self.treeScroll.set)
 
+        self.menu = tk.Menu(self, tearoff=0)
+        self.menu.add_command(label="Copy URL", command=self.copyURL)
+        self.menu.add_command(label="Cut", command=self.cutTab)
+        self.menu.add_command(label="Insert", command=self.insertTab)
+
+    def cutTab(self):
+        selected = self.treeView.selection()
+        if len(selected) > 0:
+            item = selected[0]
+
+            if item in objNameMap and isinstance(objNameMap[item], Tab):
+                self.tabClipboard = item
+            else:
+                self.tabClipboard = None
+
+    def insertTab(self):
+        selected = self.treeView.selection()
+
+        if len(selected) > 0:
+            item = selected[0]
+
+            if self.tabClipboard != None and item != self.tabClipboard:
+                self.treeView.move(self.tabClipboard, item, "end")
+
+    def copyURL(self):
+        selected = self.treeView.selection()
+        if len(selected) > 0:
+            item = selected[0]
+
+            if item in objNameMap:
+                tab = objNameMap[item]
+                if hasattr(tab, "url"):
+                    self.parent.clipboard_clear()
+                    self.parent.clipboard_append(tab.url)
+            else:
+                print("Unkown tab id (possibly window): ", item)
+
     def deleteTab(self):
         if len(self.treeView.selection()) > 0:
             if messagebox.askyesno("Delete?", "Are you sure you want to delete the selected tab trees?"):
@@ -219,9 +259,11 @@ class Application(ttk.Frame):
 
     def addChildren(self, element, rootItem):
         for child in element.children:
+            opened = not child.collapsed
+            if len(child.children) == 0: opened = True
+
             tkImg = Favicon.getByName(child.image).getTKImage()
-            item = self.treeView.insert(rootItem, "end", getObjName(child), text=getObjLabel(child),
-                        open=(not child.collapsed), image=tkImg)
+            item = self.treeView.insert(rootItem, "end", getObjName(child), text=getObjLabel(child), open=opened, image=tkImg)
             self.addChildren(child, item)
 
     def fillTree(self):
@@ -260,7 +302,7 @@ class Application(ttk.Frame):
             self.treeView.focus()
 
     def openTab(self, event):
-        item = self.treeView.identify('item',event.x,event.y)
+        item = self.treeView.identify('item', event.x, event.y)
 
         if item in objNameMap:
             tab = objNameMap[item]
