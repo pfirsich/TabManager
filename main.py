@@ -11,9 +11,7 @@ import requests
 profileDir = "C:\\Users\\Joel\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\6efcy1z3.default"
 
 # TODO:
-# Save collapse state
-# save deletions
-# save rearrangements
+# ~
 
 class Tab(object):
     def __init__(self, url, title, image):
@@ -25,17 +23,26 @@ class Tab(object):
         self.collapsed = False
         self.tstId = None
         self.tstParent = None
+        self.parent = None
 
     def __repr__(self):
         return "<Tab: {0}, {1} - tstId: {2}, parent: {3}> - children: {4}".format(self.title, self.url, self.tstId, self.tstParent, self.children)
 
     def toJSON(self):
-        return self.__dict__
+        dct = self.__dict__.copy()
+        dct.pop("parent")
+        return dct
 
 class Window(object):
-    def __init__(self, windowIndex, tabs):
+    def __init__(self, windowIndex=None, tabs=None):
         self.annotation = None
         self.collapsed = False
+        self.title = ""
+        self.children = None
+        if windowIndex != None and tabs != None:
+            self.set(windowIndex, tabs)
+
+    def set(self, windowIndex, tabs):
         self.title = "Window #{0}, {1} Tabs - {2}".format(windowIndex + 1, len(tabs), datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
         self.children = tabs
 
@@ -78,6 +85,8 @@ def mergeTabs():
     with open(os.path.join(profileDir, "sessionstore-backups/recovery.js"), encoding = "utf-8") as inFile:
         ffData = json.load(inFile)
         for windowIndex, window in enumerate(ffData["windows"]):
+            win = Window()
+
             tabList = []
             for tabIndex, tab in enumerate(window["tabs"]):
                 entry = tab["entries"][tab["index"] - 1]
@@ -92,10 +101,13 @@ def mergeTabs():
                 if tabObj.tstParent != None:
                     parent = treestyleTabIdMap[tabObj.tstParent]
                     parent.children.append(tabObj)
+                    tabObj.parent = parent
                 else:
                     tabList.append(tabObj)
+                    tabObj.parent = win
 
-            windows.append(Window(windowIndex, tabList))
+            win.set(windowIndex, tabList)
+            windows.append(win)
 
 def loadTabs():
     try:
@@ -243,6 +255,13 @@ class Application(ttk.Frame):
             if self.tabClipboard != None and item != self.tabClipboard:
                 self.treeView.move(self.tabClipboard, item, "end")
 
+                toInsert = objNameMap[self.tabClipboard]
+                if toInsert.parent == None:
+                    print(toInsert)
+                toInsert.parent.children.remove(toInsert)
+                insertInto = objNameMap[item]
+                insertInto.children.append(toInsert)
+
     def copyURL(self):
         selected = self.treeView.selection()
         if len(selected) > 0:
@@ -259,10 +278,18 @@ class Application(ttk.Frame):
     def deleteTab(self):
         if len(self.treeView.selection()) > 0:
             if messagebox.askyesno("Delete?", "Are you sure you want to delete the selected tab trees?"):
+                for item in self.treeView.selection():
+                    obj = objNameMap[item]
+                    if isinstance(obj, Window):
+                        windows.remove(obj)
+                    elif isinstance(obj, Tab):
+                        obj.parent.children.remove(obj)
+                    else:
+                        print(":'(")
                 self.treeView.delete(self.treeView.selection())
 
     def keyHandler(self, event):
-        #print(event.char, event.keysym)
+        #print("key", event.char, event.keysym)
         if event.char == "#":
             self.annotateTab()
         elif event.keysym == "Delete":
