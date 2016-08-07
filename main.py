@@ -35,6 +35,7 @@ class Tab(object):
 class Window(object):
     def __init__(self, windowIndex, tabs):
         self.annotation = None
+        self.collapsed = False
         self.title = "Window #{0}, {1} Tabs - {2}".format(windowIndex + 1, len(tabs), datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
         self.children = tabs
 
@@ -65,6 +66,7 @@ def JSONDeserializer(dct):
         ret = Window(0, JSONDeserializer(dct["children"]))
         ret.title = dct["title"]
         ret.annotation = dct["annotation"]
+        ret.collapsed = dct["collapsed"]
         return ret
     else:
         return dct
@@ -159,9 +161,6 @@ class Application(ttk.Frame):
         self.columnconfigure(0, weight=1)
         self.grid(sticky=NSEW)
         self.createWidgets()
-        self.treeView.bind("#", self.keyHandler)
-        self.treeView.bind("<Key>", self.keyHandler)
-        self.treeView.bind("<Button-3>", self.popup)
         self.tabClipboard = None
 
         if len(windows) == 0:
@@ -197,6 +196,11 @@ class Application(ttk.Frame):
         self.treeView = ttk.Treeview(self)
         self.treeView.grid(row=1, sticky=NSEW)
         self.treeView.bind("<Double-1>", self.openTab)
+        self.treeView.bind("#", self.keyHandler)
+        self.treeView.bind("<Key>", self.keyHandler)
+        self.treeView.bind("<Button-3>", self.popup)
+        self.treeView.bind("<<TreeviewOpen>>", self.openItem)
+        self.treeView.bind("<<TreeviewClose>>", self.closeItem)
         self.treeView.tag_configure('window', background='grey')
         self.treeView.tag_configure('window', foreground='white')
 
@@ -209,6 +213,16 @@ class Application(ttk.Frame):
         self.menu.add_command(label="Copy URL", command=self.copyURL)
         self.menu.add_command(label="Cut", command=self.cutTab)
         self.menu.add_command(label="Insert", command=self.insertTab)
+
+    def openItem(self, event):
+        item = self.treeView.selection()[0]
+        obj = objNameMap[item]
+        obj.collapsed = False
+
+    def closeItem(self, event):
+        item = self.treeView.selection()[0]
+        obj = objNameMap[item]
+        obj.collapsed = True
 
     def cutTab(self):
         selected = self.treeView.selection()
@@ -261,17 +275,14 @@ class Application(ttk.Frame):
 
     def addChildren(self, element, rootItem):
         for child in element.children:
-            opened = not child.collapsed
-            if len(child.children) == 0: opened = True
-
             tkImg = Favicon.getByName(child.image).getTKImage()
-            item = self.treeView.insert(rootItem, "end", getObjName(child), text=getObjLabel(child), open=opened, image=tkImg)
+            item = self.treeView.insert(rootItem, "end", getObjName(child), text=getObjLabel(child), open=not child.collapsed, image=tkImg)
             self.addChildren(child, item)
 
     def fillTree(self):
         self.treeView.delete(*self.treeView.get_children())
         for window in windows:
-            windowItem = self.treeView.insert("", "end", getObjName(window), text=getObjLabel(window), open=True, image=windowTKImage, tags=('window',))
+            windowItem = self.treeView.insert("", "end", getObjName(window), text=getObjLabel(window), open=not window.collapsed, image=windowTKImage, tags=('window',))
             self.addChildren(window, windowItem)
 
     def saveTabs(self):
