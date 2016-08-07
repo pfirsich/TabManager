@@ -59,10 +59,12 @@ def JSONDeserializer(dct):
         ret.collapsed = dct["collapsed"]
         ret.tstId = dct["tstId"]
         ret.tstParent = dct["tstParent"]
+        ret.annotation = dct["annotation"]
         return ret
     elif "__Window__" in dct:
         ret = Window(0, JSONDeserializer(dct["children"]))
         ret.title = dct["title"]
+        ret.annotation = dct["annotation"]
         return ret
     else:
         return dct
