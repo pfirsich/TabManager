@@ -8,10 +8,19 @@ import webbrowser
 import concurrent.futures
 import requests
 
-profileDir = "C:\\Users\\Joel\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\6efcy1z3.default"
+profileName = None
+profileDir = "{APPDATA}\\Mozilla\\Firefox\\Profiles"
+
+profileDir = profileDir.format(APPDATA=os.environ['APPDATA'])
+dirItems = list(os.listdir(profileDir))
+if len(dirItems) == 1:
+    profileName = dirItems[0]
+
+if profileName == None:
+    quit("It seems like you have multiple profiles. Please adjust 'profileName' at the beginning of main.py")
 
 # TODO:
-# ~
+# Support profiles without tree style tabs
 
 class TreeItemBase(object):
     idCounter = 0
@@ -142,7 +151,8 @@ windows = []
 treestyleTabIdMap = {}
 
 def mergeTabs():
-    with open(os.path.join(profileDir, "sessionstore-backups/recovery.js"), encoding = "utf-8") as inFile:
+    sessionFile = os.path.join(profileDir, profileName, "sessionstore-backups/recovery.js")
+    with open(sessionFile, encoding = "utf-8") as inFile:
         ffData = json.load(inFile)
         for windowIndex, window in enumerate(ffData["windows"]):
             win = Window()
