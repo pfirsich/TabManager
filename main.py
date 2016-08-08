@@ -262,6 +262,7 @@ class Application(ttk.Frame):
 
         self.menu = tk.Menu(self, tearoff=0)
         self.menu.add_command(label="Copy URL", command=self.copyURL)
+        self.menu.add_command(label="Delete", command=self.deleteTab)
         self.menu.add_command(label="Cut", command=self.cutTab)
         self.menu.add_command(label="Insert", command=self.insertTab)
 
