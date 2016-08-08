@@ -102,7 +102,7 @@ class Window(TreeItemBase):
         TreeItemBase.__init__(self)
 
     def setTitle(self, windowIndex):
-        self.title = "Window #{0}, {1} Tabs - {2}".format(windowIndex + 1, len(self.children), datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
+        self.title = "Window #{0}, {1} Tabs - {2}".format(windowIndex + 1, self.totalChildrenCount(), datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
 
     def __repr__(self):
         return "<Window: id = {}, title = {}>".format(self.id, self.title)
@@ -367,7 +367,7 @@ class Application(ttk.Frame):
                 for item in self.treeView.selection():
                     obj = TreeItemBase.getByName(item)
                     obj.annotation = annotation
-                    self.treeView.item(item, text=getObjLabel(obj))
+                    self.treeView.item(item, text=obj.getLabel())
             self.treeView.focus_set()
             self.treeView.focus()
 
@@ -384,7 +384,7 @@ class Application(ttk.Frame):
                     if messagebox.askyesno(title, message.format(tabCount)):
                         openTabTree(obj)
                 else:
-                    webbrowser.open(tab.url)
+                    webbrowser.open(obj.url)
             else:
                 if messagebox.askyesno(title, message.format(len(selection))):
                     for item in selection:
