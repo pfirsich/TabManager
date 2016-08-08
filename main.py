@@ -411,8 +411,17 @@ class Application(ttk.Frame):
 def downloadImage(url):
     try:
         r = requests.get(url)
-        img = Image.open(io.BytesIO(r.content))
-        img.thumbnail((16, 16))
+        r.raise_for_status()
+        if len(r.content) > 0: # It's surprising how many sites serve favicon files with 0 bytes
+            img = Image.open(io.BytesIO(r.content))
+            img.thumbnail((16, 16))
+        else:
+            return whiteImage
+    except requests.exceptions.HTTPError as e:
+        if r.status_code == 404 or r.status_code >= 500: # actually favicons 404 a lot
+            return whiteImage
+        else:
+            print(url, " - exception: ", e)
     except BaseException as e:
         print(url, " - exception: ", e)
         return None
