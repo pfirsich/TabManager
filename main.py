@@ -19,6 +19,8 @@ if len(dirItems) == 1:
 if profileName == None:
     quit("It seems like you have multiple profiles. Please adjust 'profileName' at the beginning of main.py")
 
+sessionFile = os.path.join(profileDir, profileName, "sessionstore-backups/recovery.js")
+
 # TODO:
 # Support profiles without tree style tabs
 
@@ -151,7 +153,6 @@ windows = []
 treestyleTabIdMap = {}
 
 def mergeTabs():
-    sessionFile = os.path.join(profileDir, profileName, "sessionstore-backups/recovery.js")
     with open(sessionFile, encoding = "utf-8") as inFile:
         ffData = json.load(inFile)
         for windowIndex, window in enumerate(ffData["windows"]):
@@ -162,10 +163,11 @@ def mergeTabs():
                 if "title" not in entry:
                     entry["title"] = entry["url"]
                 tabObj = Tab(entry["url"], entry["title"], tab["image"])
-                tabObj.collapsed = tab["extData"].get("treestyletab-subtree-collapsed", "false") == "true"
-                tabObj.tstId = tab["extData"]["treestyletab-id"]
-                tabObj.tstParent = tab["extData"].get("treestyletab-parent", None)
-                treestyleTabIdMap[tabObj.tstId] = tabObj
+                if "extData" in tab and "treestyletab-id" in tab["extData"]:
+                    tabObj.collapsed = tab["extData"].get("treestyletab-subtree-collapsed", "false") == "true"
+                    tabObj.tstId = tab["extData"]["treestyletab-id"]
+                    tabObj.tstParent = tab["extData"].get("treestyletab-parent", None)
+                    treestyleTabIdMap[tabObj.tstId] = tabObj
 
                 if tabObj.tstParent != None:
                     parent = treestyleTabIdMap[tabObj.tstParent]
